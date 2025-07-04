@@ -136,10 +136,10 @@ where
     {
         match self {
             Some(value) => {
-                true.encode::<W, O>(buffer)?;
-                value.encode::<W, O>(buffer)
+                true.encode::<_,O>(buffer)?;
+                value.encode::<_,O>(buffer)
             }
-            None => false.encode::<W, O>(buffer),
+            None => false.encode::<_,O>(buffer),
         }
     }
 }
@@ -153,8 +153,8 @@ where
         R: Read + Seek,
         O: ByteOrder
     {
-        let value = if bool::decode::<R, O>(buffer)? {
-            Some(T::decode::<R, O>(buffer)?)
+        let value = if bool::decode::<_, O>(buffer)? {
+            Some(T::decode::<_, O>(buffer)?)
         } else {
             None
         };
@@ -175,7 +175,7 @@ macro_rules! impl_smart_ptr_codecs {
                     W: Write,
                     O: ByteOrder,
                 {
-                    (**self).encode::<W, O>(buffer)
+                    (**self).encode::<_,O>(buffer)
                 }
             }
 
@@ -188,7 +188,7 @@ macro_rules! impl_smart_ptr_codecs {
                     R: Read + Seek,
                     O: ByteOrder,
                 {
-                    let value = T::decode::<R, O>(buffer)?;
+                    let value = T::decode::<_, O>(buffer)?;
                     Ok(Self::new(value))
                 }
             }
@@ -207,10 +207,10 @@ where
         W: Write,
         O: ByteOrder,
     {
-        VarI32(self.len() as _).encode::<W, O>(buffer)?;
+        VarI32(self.len() as _).encode::<_,O>(buffer)?;
 
         for item in self {
-            item.encode::<W, O>(buffer)?;
+            item.encode::<_,O>(buffer)?;
         }
 
         Ok(())
@@ -226,13 +226,13 @@ where
         R: Read + Seek,
         O: ByteOrder,
     {
-        let len = VarI32::decode::<R, O>(buffer)?;
+        let len = VarI32::decode::<_, O>(buffer)?;
         let len = len.0 as _;
 
         let mut vec = Vec::with_capacity(len);
 
         for _ in 0..len {
-            vec.push(T::decode::<R, O>(buffer)?);
+            vec.push(T::decode::<_, O>(buffer)?);
         }
 
         Ok(vec)
@@ -245,7 +245,7 @@ impl Encoder for Vec<u8> {
         W: Write,
         O: ByteOrder,
     {
-        VarI32(self.len() as _).encode::<W, O>(buffer)?;
+        VarI32(self.len() as _).encode::<_,O>(buffer)?;
         buffer.write_all(self)
     }
 }
@@ -256,7 +256,7 @@ impl Decoder for Vec<u8> {
         R: Read + Seek,
         O: ByteOrder,
     {
-        let VarI32(len) = VarI32::decode::<R, O>(buffer)?;
+        let VarI32(len) = VarI32::decode::<_, O>(buffer)?;
         let len = len as usize;
 
         let mut vec = vec![0u8; len];
@@ -275,9 +275,9 @@ where
         W: Write,
         O: ByteOrder,
     {
-        VarI32(self.len() as i32).encode::<W, O>(buffer)?;
+        VarI32(self.len() as i32).encode::<_,O>(buffer)?;
         for item in *self {
-            item.encode::<W, O>(buffer)?;
+            item.encode::<_,O>(buffer)?;
         }
         Ok(())
     }
@@ -289,7 +289,7 @@ impl Encoder for &[u8] {
         W: Write,
         O: ByteOrder,
     {
-        VarI32(self.len() as i32).encode::<W, O>(buffer)?;
+        VarI32(self.len() as i32).encode::<_,O>(buffer)?;
         buffer.write_all(self).map_err(|e| e.into())
     }
 }
@@ -300,7 +300,7 @@ impl Encoder for String {
         W: Write,
         O: ByteOrder
     {
-        self.as_bytes().encode::<W, O>(buffer)
+        self.as_bytes().encode::<_,O>(buffer)
     }
 }
 
@@ -310,7 +310,7 @@ impl Decoder for String {
         R: Read + Seek,
         O: ByteOrder,
     {
-        let bytes = Vec::<u8>::decode::<R, O>(buffer)?;
+        let bytes = Vec::<u8>::decode::<_, O>(buffer)?;
         String::from_utf8(bytes).map_err(|e| {
             Error::new(ErrorKind::InvalidData, e).into()
         })
