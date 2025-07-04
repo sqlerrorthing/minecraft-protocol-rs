@@ -70,10 +70,3 @@ pub trait Identifiable {
 /// - [`Encoder`] to support serialization into bytes.
 /// - [`Decoder`] to support deserialization from bytes.
 pub trait Packet: Debug + Identifiable + Encoder + Decoder {}
-
-#[derive(Debug, Decode, Encode)]
-struct HandshakeC2SPacket {
-    protocol_version: VarI32,
-    address: String,
-    port: i16
-}
