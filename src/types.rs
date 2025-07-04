@@ -1,5 +1,5 @@
-use crate::decoder::Decoder;
-use crate::encoder::Encoder;
+use crate::codec::decoder::Decoder;
+use crate::codec::encoder::Encoder;
 use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 use tokio::io::AsyncRead;

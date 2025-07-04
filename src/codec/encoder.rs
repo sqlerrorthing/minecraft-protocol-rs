@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use tokio::io::AsyncWrite;
 
+use crate::{codec::VersionedCodecError, protocol::ProtocolVersion};
+
 /// Trait representing the ability to encode a type into a byte stream.
 ///
 /// Types implementing `Encoder` can be serialized into a byte buffer,
@@ -16,6 +18,17 @@ pub trait Encoder {
     /// # Returns
     /// Returns `Ok(())` if encoding succeeds, or an error of type `std::io::Error` otherwise.
     async fn encode<W>(&self, buffer: &mut W) -> Result<(), std::io::Error>
+    where
+        W: AsyncWrite + Unpin + Send;
+}
+
+#[async_trait]
+pub trait VersionedEncoder {
+    async fn encode<W>(
+        &self,
+        buffer: &mut W,
+        dest: ProtocolVersion,
+    ) -> Result<(), VersionedCodecError>
     where
         W: AsyncWrite + Unpin + Send;
 }

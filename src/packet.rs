@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::{decoder::Decoder, encoder::Encoder};
+use crate::codec::{decoder::Decoder, encoder::Encoder};
 
 /// Trait representing types which have a unique identifier.
 ///
