@@ -1,38 +1,16 @@
-use std::io::Seek;
+use std::io::{Error, ErrorKind, Seek};
 use std::io::{Read, Write};
+use std::rc::Rc;
+use std::sync::Arc;
 use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
 
 use crate::packet::{Encoder, Decoder};
-
-macro_rules! impl_byte_primitives {
-    ($($ty:ty => $read_fn:ident, $write_fn:ident);+ $(;)?) => {
-        $(
-            impl Encoder for $ty {
-                fn encode<W, _O>(&self, buffer: &mut W) -> Result<(), std::io::Error>
-                where
-                    W: Write,
-                {
-                    buffer.$write_fn(*self)
-                }
-            }
-
-            impl Decoder for $ty {
-                fn decode<R, _O>(buffer: &mut R) -> Result<Self, std::io::Error>
-                where
-                    R: Read + Seek,
-                {
-                    buffer.$read_fn()
-                }
-            }
-        )+
-    };
-}
 
 macro_rules! impl_ordered_primitives {
     ($($ty:ty => $read_fn:ident, $write_fn:ident);+ $(;)?) => {
         $(
             impl Encoder for $ty {
-                fn encode<W, O>(&self, buffer: &mut W) -> Result<(), std::io::Error>
+                fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
                 where
                     W: Write,
                     O: ByteOrder,
@@ -42,7 +20,7 @@ macro_rules! impl_ordered_primitives {
             }
 
             impl Decoder for $ty {
-                fn decode<R, O>(buffer: &mut R) -> Result<Self, std::io::Error>
+                fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
                 where
                     R: Read + Seek,
                     O: ByteOrder,
@@ -52,11 +30,6 @@ macro_rules! impl_ordered_primitives {
             }
         )+
     };
-}
-
-impl_byte_primitives! {
-    i8 => read_i8, write_i8;
-    u8 => read_u8, write_u8;
 }
 
 impl_ordered_primitives! {
@@ -73,7 +46,7 @@ impl_ordered_primitives! {
 }
 
 impl Encoder for bool {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), std::io::Error>
+    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
     where
         W: Write,
         O: ByteOrder,
@@ -84,7 +57,7 @@ impl Encoder for bool {
 }
 
 impl Decoder for bool {
-    fn decode<R, O>(buffer: &mut R) -> Result<Self, std::io::Error>
+    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
     where
         R: Read,
         O: ByteOrder,
@@ -102,7 +75,7 @@ macro_rules! impl_varint {
         pub struct $name(pub $int);
 
         impl Encoder for $name {
-            fn encode<W, O>(&self, buffer: &mut W) -> Result<(), std::io::Error>
+            fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
             where
                 W: Write,
                 O: ByteOrder,
@@ -118,7 +91,7 @@ macro_rules! impl_varint {
         }
 
         impl Decoder for $name {
-            fn decode<R, O>(buffer: &mut R) -> Result<Self, std::io::Error>
+            fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
             where
                 R: Read,
                 O: ByteOrder,
@@ -156,7 +129,7 @@ impl<T> Encoder for Option<T>
 where 
     T: Encoder,
 {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), std::io::Error>
+    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
     where
         W: Write,
         O: ByteOrder
@@ -175,7 +148,7 @@ impl<T> Decoder for Option<T>
 where
     T: Decoder,
 {
-    fn decode<R, O>(buffer: &mut R) -> Result<Self, std::io::Error>
+    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
     where
         R: Read + Seek,
         O: ByteOrder
@@ -187,5 +160,164 @@ where
         };
         
         Ok(value)
+    }
+}
+
+macro_rules! impl_smart_ptr_codecs {
+    ($($ptr:ty),+ $(,)?) => {
+        $(
+            impl<T> Encoder for $ptr
+            where
+                T: Encoder,
+            {
+                fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+                where
+                    W: Write,
+                    O: ByteOrder,
+                {
+                    (**self).encode::<W, O>(buffer)
+                }
+            }
+    
+            impl<T> Decoder for $ptr
+            where
+                T: Decoder,
+            {
+                fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+                where
+                    R: Read + Seek,
+                    O: ByteOrder,
+                {
+                    let value = T::decode::<R, O>(buffer)?;
+                    Ok(Self::new(value))
+                }
+            }
+        )+
+    };
+}
+
+impl_smart_ptr_codecs!(Arc<T>, Rc<T>, Box<T>);
+
+impl<T> Encoder for Vec<T>
+where
+    T: Encoder,
+{
+    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    where
+        W: Write,
+        O: ByteOrder,
+    {
+        VarI32(self.len() as _).encode::<W, O>(buffer)?;
+
+        for item in self {
+            item.encode::<W, O>(buffer)?;
+        }
+
+        Ok(())
+    }
+}
+
+impl<T> Decoder for Vec<T>
+where
+    T: Decoder,
+{
+    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+    where
+        R: Read + Seek,
+        O: ByteOrder,
+    {
+        let len = VarI32::decode::<R, O>(buffer)?;
+        let len = len.0 as _;
+
+        let mut vec = Vec::with_capacity(len);
+
+        for _ in 0..len {
+            vec.push(T::decode::<R, O>(buffer)?);
+        }
+
+        Ok(vec)
+    }
+}
+
+impl Encoder for Vec<u8> {
+    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    where
+        W: Write,
+        O: ByteOrder,
+    {
+        VarI32(self.len() as _).encode::<W, O>(buffer)?;
+        buffer.write_all(self)
+    }
+}
+
+impl Decoder for Vec<u8> {
+    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+    where
+        R: Read + Seek,
+        O: ByteOrder,
+    {
+        let VarI32(len) = VarI32::decode::<R, O>(buffer)?;
+        let len = len as usize;
+
+        let mut vec = vec![0u8; len];
+        buffer.read_exact(&mut vec)?;
+
+        Ok(vec)
+    }
+}
+
+impl<T> Encoder for &[T]
+where
+    T: Encoder,
+{
+    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    where
+        W: Write,
+        O: ByteOrder,
+    {
+        VarI32(self.len() as i32).encode::<W, O>(buffer)?;
+        for item in *self {
+            item.encode::<W, O>(buffer)?;
+        }
+        Ok(())
+    }
+}
+
+impl Encoder for &[u8] {
+    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    where
+        W: Write,
+        O: ByteOrder,
+    {
+        VarI32(self.len() as i32).encode::<W, O>(buffer)?;
+        buffer.write_all(self).map_err(|e| e.into())
+    }
+}
+
+impl Encoder for String {
+    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    where
+        W: Write,
+        O: ByteOrder
+    {
+        self.as_bytes().encode::<W, O>(buffer)
+    }
+}
+
+impl Decoder for String {
+    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+    where
+        R: Read + Seek,
+        O: ByteOrder,
+    {
+        let VarI32(len) = VarI32::decode::<R, O>(buffer)?;
+        let len = len as usize;
+
+        let mut bytes = vec![0u8; len];
+        buffer.read_exact(&mut bytes)?;
+
+        String::from_utf8(bytes).map_err(|e| {
+            Error::new(ErrorKind::InvalidData, e).into()
+        })
     }
 }
