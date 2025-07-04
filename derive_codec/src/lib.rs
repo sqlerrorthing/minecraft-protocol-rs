@@ -3,7 +3,7 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Data, Fields, Index};
+use syn::{Data, DeriveInput, Fields, Index, parse_macro_input};
 
 #[proc_macro_derive(Encode)]
 pub fn derive_encode(input: TokenStream) -> TokenStream {
@@ -11,33 +11,31 @@ pub fn derive_encode(input: TokenStream) -> TokenStream {
     let name = input.ident;
 
     let body = match input.data {
-        Data::Struct(data_struct) => {
-            match data_struct.fields {
-                Fields::Named(ref fields) => {
-                    let field_encodes = fields.named.iter().map(|f| {
-                        let ident = &f.ident;
-                        quote! {
-                            self.#ident.encode::<_, O>(buffer)?;
-                        }
-                    });
+        Data::Struct(data_struct) => match data_struct.fields {
+            Fields::Named(ref fields) => {
+                let field_encodes = fields.named.iter().map(|f| {
+                    let ident = &f.ident;
                     quote! {
-                        #( #field_encodes )*
+                        self.#ident.encode(buffer).await?;
                     }
+                });
+                quote! {
+                    #( #field_encodes )*
                 }
-                Fields::Unnamed(ref fields) => {
-                    let field_encodes = fields.unnamed.iter().enumerate().map(|(i, _)| {
-                        let index = Index::from(i);
-                        quote! {
-                            self.#index.encode::<_, O>(buffer)?;
-                        }
-                    });
-                    quote! {
-                        #( #field_encodes )*
-                    }
-                }
-                Fields::Unit => quote! {},
             }
-        }
+            Fields::Unnamed(ref fields) => {
+                let field_encodes = fields.unnamed.iter().enumerate().map(|(i, _)| {
+                    let index = Index::from(i);
+                    quote! {
+                        self.#index.encode(buffer).await?;
+                    }
+                });
+                quote! {
+                    #( #field_encodes )*
+                }
+            }
+            Fields::Unit => quote! {},
+        },
 
         Data::Enum(data_enum) => {
             let variant_matches = data_enum.variants.iter().enumerate().map(|(i, v)| {
@@ -51,7 +49,7 @@ pub fn derive_encode(input: TokenStream) -> TokenStream {
                 let index = match self {
                     #( #variant_matches )*
                 };
-                VarI32(index as i32).encode::<_, O>(buffer)?;
+                VarI32(index as i32).encode(buffer).await?;
             }
         }
 
@@ -59,11 +57,11 @@ pub fn derive_encode(input: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
+        #[async_trait::async_trait]
         impl Encoder for #name {
-            fn encode<W, O>(&self, buffer: &mut W) -> Result<(), std::io::Error>
+            async fn encode<W>(&self, buffer: &mut W) -> Result<(), std::io::Error>
             where
-                W: std::io::Write,
-                O: ByteOrder,
+                W: tokio::io::AsyncWrite + Unpin + Send,
             {
                 #body
                 Ok(())
@@ -86,9 +84,9 @@ pub fn derive_decode(input: TokenStream) -> TokenStream {
                     let bindings = fields.named.iter().map(|f| {
                         let ident = &f.ident;
                         let ty = &f.ty;
-                        quote! { #ident: <#ty as Decoder>::decode::<_, O>(buffer)? }
+                        quote! { #ident: <#ty as Decoder>::decode(buffer).await? }
                     });
-                    
+
                     quote! {
                         Ok(#name {
                             #( #bindings ),*
@@ -97,7 +95,7 @@ pub fn derive_decode(input: TokenStream) -> TokenStream {
                 }
                 Fields::Unnamed(ref fields) => {
                     let values = fields.unnamed.iter().map(|_| {
-                        quote! { Decoder::decode::<_, O>(buffer)? }
+                        quote! { Decoder::decode(buffer).await? }
                     });
                     quote! {
                         Ok(#name(
@@ -111,11 +109,11 @@ pub fn derive_decode(input: TokenStream) -> TokenStream {
             };
 
             quote! {
+                #[async_trait::async_trait]
                 impl Decoder for #name {
-                    fn decode<R, O>(buffer: &mut R) -> Result<Self, std::io::Error>
+                    async fn decode<R>(buffer: &mut R) -> Result<Self, std::io::Error>
                     where
-                        R: std::io::Read + std::io::Seek,
-                        O: ByteOrder,
+                        R: tokio::io::AsyncRead + Unpin + Send,
                     {
                         #decode_fields
                     }
@@ -133,7 +131,7 @@ pub fn derive_decode(input: TokenStream) -> TokenStream {
                             #i => Ok(#name::#variant),
                         }
                     }
-                    
+
                     _ => {
                         quote! {
                             #i => return Err(std::io::Error::new(
@@ -147,12 +145,11 @@ pub fn derive_decode(input: TokenStream) -> TokenStream {
 
             quote! {
                 impl Decoder for #name {
-                    fn decode<R, O>(buffer: &mut R) -> Result<Self, std::io::Error>
+                    fn decode<R>(buffer: &mut R) -> Result<Self, std::io::Error>
                     where
-                        R: std::io::Read + std::io::Seek,
-                        O: ByteOrder,
+                        R: tokio::io::AsyncRead + Unpin + Send,
                     {
-                        let index = VarI32::decode::<_, O>(buffer)?.0 as usize;
+                        let index = VarI32::decode(buffer).await?.0 as usize;
                         match index {
                             #( #variant_arms )*
                             _ => Err(std::io::Error::new(
@@ -164,7 +161,6 @@ pub fn derive_decode(input: TokenStream) -> TokenStream {
                 }
             }
         }
-
 
         _ => unimplemented!(),
     };
