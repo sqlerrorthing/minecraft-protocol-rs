@@ -1,2 +1,2 @@
 pub mod packet;
-mod types;
+pub mod types;

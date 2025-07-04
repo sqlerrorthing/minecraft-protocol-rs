@@ -1,3 +1,7 @@
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio::io::AsyncWrite;
+use tokio::io::AsyncRead;
 use std::io::{Error, ErrorKind, Seek};
 use std::io::{Read, Write};
 use std::rc::Rc;
@@ -9,23 +13,23 @@ use crate::packet::{Encoder, Decoder};
 macro_rules! impl_ordered_primitives {
     ($($ty:ty => $read_fn:ident, $write_fn:ident);+ $(;)?) => {
         $(
+            #[async_trait::async_trait]
             impl Encoder for $ty {
-                fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+                async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
                 where
-                    W: Write,
-                    O: ByteOrder,
+                    W: AsyncWrite + Unpin + Send
                 {
-                    buffer.$write_fn::<O>(*self)
+                    buffer.$write_fn(*self).await
                 }
             }
 
+            #[async_trait::async_trait]
             impl Decoder for $ty {
-                fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+                async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
                 where
-                    R: Read + Seek,
-                    O: ByteOrder,
+                    R: AsyncRead + Unpin + Send
                 {
-                    buffer.$read_fn::<O>()
+                    buffer.$read_fn().await
                 }
             }
         )+
@@ -45,25 +49,25 @@ impl_ordered_primitives! {
     f64 => read_f64, write_f64;
 }
 
+#[async_trait::async_trait]
 impl Encoder for bool {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
-        W: Write,
-        O: ByteOrder,
+        W: AsyncWrite + Unpin + Send,
     {
-        buffer.write_all(&[*self as u8])?;
+        buffer.write_all(&[*self as u8]).await?;
         Ok(())
     }
 }
 
+#[async_trait::async_trait]
 impl Decoder for bool {
-    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+    async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
     where
-        R: Read,
-        O: ByteOrder,
+        R: AsyncRead + Unpin + Send,
     {
         let mut byte = [0u8; 1];
-        buffer.read_exact(&mut byte)?;
+        buffer.read_exact(&mut byte).await?;
         Ok(byte[0] != 0)
     }
 }
@@ -74,34 +78,34 @@ macro_rules! impl_varint {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub struct $name(pub $int);
 
+        #[async_trait::async_trait]
         impl Encoder for $name {
-            fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+            async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
             where
-                W: Write,
-                O: ByteOrder,
+                W: AsyncWrite + Unpin + Send,
             {
                 let mut value = self.0 as $uint;
                 while value & !0x7F != 0 {
-                    buffer.write_all(&[((value & 0x7F) as u8) | 0x80])?;
+                    buffer.write_all(&[((value & 0x7F) as u8) | 0x80]).await?;
                     value >>= 7;
                 }
-                buffer.write_all(&[value as u8])?;
+                buffer.write_all(&[value as u8]).await?;
                 Ok(())
             }
         }
 
+        #[async_trait::async_trait]
         impl Decoder for $name {
-            fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+            async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
             where
-                R: Read,
-                O: ByteOrder,
+                R: AsyncRead + Unpin + Send,
             {
                 let mut num_read = 0;
                 let mut result: $uint = 0;
 
                 loop {
                     let mut byte = [0u8];
-                    buffer.read_exact(&mut byte)?;
+                    buffer.read_exact(&mut byte).await?;
                     let b = byte[0];
 
                     result |= ((b & 0x7F) as $uint) << (7 * num_read);
@@ -125,21 +129,21 @@ macro_rules! impl_varint {
 impl_varint!(VarI32, i32, u32, 5);
 impl_varint!(VarI64, i64, u64, 10);
 
+#[async_trait::async_trait]
 impl<T> Encoder for Option<T>
 where
-    T: Encoder,
+    T: Encoder + Sync,
 {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
-        W: Write,
-        O: ByteOrder
+        W: AsyncWrite + Unpin + Send
     {
         match self {
             Some(value) => {
-                true.encode::<_,O>(buffer)?;
-                value.encode::<_,O>(buffer)
+                true.encode(buffer).await?;
+                value.encode(buffer).await
             }
-            None => false.encode::<_,O>(buffer),
+            None => false.encode(buffer).await,
         }
     }
 }
@@ -148,13 +152,12 @@ impl<T> Decoder for Option<T>
 where
     T: Decoder,
 {
-    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+    async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
     where
-        R: Read + Seek,
-        O: ByteOrder
+        R: AsyncRead + Unpin + Send
     {
-        let value = if bool::decode::<_, O>(buffer)? {
-            Some(T::decode::<_, O>(buffer)?)
+        let value = if bool::decode(buffer).await? {
+            Some(T::decode(buffer).await?)
         } else {
             None
         };
