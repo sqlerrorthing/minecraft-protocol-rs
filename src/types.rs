@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use std::rc::Rc;
 use std::sync::Arc;
 use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
-
+use uuid::Uuid;
 use crate::packet::{Encoder, Decoder};
 
 macro_rules! impl_ordered_primitives {
@@ -36,11 +36,11 @@ impl_ordered_primitives! {
     i16 => read_i16, write_i16;
     i32 => read_i32, write_i32;
     i64 => read_i64, write_i64;
-    
+
     u16 => read_u16, write_u16;
     u32 => read_u32, write_u32;
     u64 => read_u64, write_u64;
-    
+
     f32 => read_f32, write_f32;
     f64 => read_f64, write_f64;
 }
@@ -126,7 +126,7 @@ impl_varint!(VarI32, i32, u32, 5);
 impl_varint!(VarI64, i64, u64, 10);
 
 impl<T> Encoder for Option<T>
-where 
+where
     T: Encoder,
 {
     fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
@@ -158,7 +158,7 @@ where
         } else {
             None
         };
-        
+
         Ok(value)
     }
 }
@@ -178,7 +178,7 @@ macro_rules! impl_smart_ptr_codecs {
                     (**self).encode::<W, O>(buffer)
                 }
             }
-    
+
             impl<T> Decoder for $ptr
             where
                 T: Decoder,
@@ -310,14 +310,31 @@ impl Decoder for String {
         R: Read + Seek,
         O: ByteOrder,
     {
-        let VarI32(len) = VarI32::decode::<R, O>(buffer)?;
-        let len = len as usize;
-
-        let mut bytes = vec![0u8; len];
-        buffer.read_exact(&mut bytes)?;
-
+        let bytes = Vec::<u8>::decode::<R, O>(buffer)?;
         String::from_utf8(bytes).map_err(|e| {
             Error::new(ErrorKind::InvalidData, e).into()
         })
+    }
+}
+
+impl Encoder for Uuid {
+    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    where
+        W: Write,
+        O: ByteOrder,
+    {
+        buffer.write_all(self.as_bytes())
+    }
+}
+
+impl Decoder for Uuid {
+    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+    where
+        R: Read,
+        O: ByteOrder,
+    {
+        let mut bytes = [0u8; 16];
+        buffer.read_exact(&mut bytes)?;
+        Ok(Uuid::from_bytes(bytes))
     }
 }
