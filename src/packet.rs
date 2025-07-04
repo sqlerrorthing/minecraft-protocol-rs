@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use byteorder::ByteOrder;
 
 /// A trait representing an associated error type for encoding and decoding operations.
@@ -8,7 +8,6 @@ use byteorder::ByteOrder;
 /// the standard library's [`std::error::Error`] trait.
 /// It is used as the error
 /// type returned by encoding and decoding functions to represent failure cases.
-/// ```
 pub trait ErrorType {
     type Error: std::error::Error;
 }
@@ -17,7 +16,6 @@ pub trait ErrorType {
 ///
 /// Types implementing `Encoder` can be serialized into a byte buffer,
 /// respecting the specified byte order (endianness).
-/// ```
 pub trait Encoder: ErrorType {
     /// Encodes the current value into the given buffer with specified byte order.
     ///
@@ -27,7 +25,7 @@ pub trait Encoder: ErrorType {
     ///
     /// # Returns
     /// Returns `Ok(())` if encoding succeeds, or an error of type `Self::Error` otherwise.
-    fn encode<W, O>(&self, buffer: &mut W, order: O) -> Result<(), Self::Error>
+    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Self::Error>
     where
         W: Write,
         O: ByteOrder;
@@ -49,9 +47,9 @@ where
     ///
     /// # Returns
     /// Returns `Ok(Self)` with the decoded instance if successful, or an error of type `Self::Error` otherwise.
-    fn decode<R, O>(buffer: &mut R, order: O) -> Result<Self, Self::Error>
+    fn decode<R, O>(buffer: &mut R) -> Result<Self, Self::Error>
     where
-        R: Read,
+        R: Read + Seek,
         O: ByteOrder;
 }
 
