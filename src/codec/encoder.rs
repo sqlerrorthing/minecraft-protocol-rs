@@ -27,7 +27,7 @@ pub trait VersionedEncoder {
     async fn encode<W>(
         &self,
         buffer: &mut W,
-        dest: ProtocolVersion,
+        target: ProtocolVersion,
     ) -> Result<(), VersionedCodecError>
     where
         W: AsyncWrite + Unpin + Send;
