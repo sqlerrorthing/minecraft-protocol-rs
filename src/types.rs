@@ -2,17 +2,13 @@ use std::io::Seek;
 use std::io::{Read, Write};
 use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
 
-use crate::packet::{Encoder, Decoder, ErrorType};
+use crate::packet::{Encoder, Decoder};
 
 macro_rules! impl_byte_primitives {
     ($($ty:ty => $read_fn:ident, $write_fn:ident);+ $(;)?) => {
         $(
-            impl ErrorType for $ty {
-                type Error = std::io::Error;
-            }
-
             impl Encoder for $ty {
-                fn encode<W, _O>(&self, buffer: &mut W) -> Result<(), Self::Error>
+                fn encode<W, _O>(&self, buffer: &mut W) -> Result<(), std::io::Error>
                 where
                     W: Write,
                 {
@@ -21,7 +17,7 @@ macro_rules! impl_byte_primitives {
             }
 
             impl Decoder for $ty {
-                fn decode<R, _O>(buffer: &mut R) -> Result<Self, Self::Error>
+                fn decode<R, _O>(buffer: &mut R) -> Result<Self, std::io::Error>
                 where
                     R: Read + Seek,
                 {
@@ -35,12 +31,8 @@ macro_rules! impl_byte_primitives {
 macro_rules! impl_ordered_primitives {
     ($($ty:ty => $read_fn:ident, $write_fn:ident);+ $(;)?) => {
         $(
-            impl ErrorType for $ty {
-                type Error = std::io::Error;
-            }
-
             impl Encoder for $ty {
-                fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Self::Error>
+                fn encode<W, O>(&self, buffer: &mut W) -> Result<(), std::io::Error>
                 where
                     W: Write,
                     O: ByteOrder,
@@ -50,7 +42,7 @@ macro_rules! impl_ordered_primitives {
             }
 
             impl Decoder for $ty {
-                fn decode<R, O>(buffer: &mut R) -> Result<Self, Self::Error>
+                fn decode<R, O>(buffer: &mut R) -> Result<Self, std::io::Error>
                 where
                     R: Read + Seek,
                     O: ByteOrder,
@@ -80,12 +72,8 @@ impl_ordered_primitives! {
     f64 => read_f64, write_f64;
 }
 
-impl ErrorType for bool {
-    type Error = std::io::Error;
-}
-
 impl Encoder for bool {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Self::Error>
+    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), std::io::Error>
     where
         W: Write,
         O: ByteOrder,
@@ -96,7 +84,7 @@ impl Encoder for bool {
 }
 
 impl Decoder for bool {
-    fn decode<R, O>(buffer: &mut R) -> Result<Self, Self::Error>
+    fn decode<R, O>(buffer: &mut R) -> Result<Self, std::io::Error>
     where
         R: Read,
         O: ByteOrder,
@@ -113,12 +101,8 @@ macro_rules! impl_varint {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub struct $name(pub $int);
 
-        impl ErrorType for $name {
-            type Error = std::io::Error;
-        }
-
         impl Encoder for $name {
-            fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Self::Error>
+            fn encode<W, O>(&self, buffer: &mut W) -> Result<(), std::io::Error>
             where
                 W: Write,
                 O: ByteOrder,
@@ -134,7 +118,7 @@ macro_rules! impl_varint {
         }
 
         impl Decoder for $name {
-            fn decode<R, O>(buffer: &mut R) -> Result<Self, Self::Error>
+            fn decode<R, O>(buffer: &mut R) -> Result<Self, std::io::Error>
             where
                 R: Read,
                 O: ByteOrder,
@@ -168,16 +152,11 @@ macro_rules! impl_varint {
 impl_varint!(VarI32, i32, u32, 5);
 impl_varint!(VarI64, i64, u64, 10);
 
-impl<T: ErrorType> ErrorType for Option<T> {
-    type Error = T::Error;
-}
-
 impl<T> Encoder for Option<T>
 where 
     T: Encoder,
-    bool: Encoder<Error = T::Error>
 {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Self::Error>
+    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), std::io::Error>
     where
         W: Write,
         O: ByteOrder
@@ -195,9 +174,8 @@ where
 impl<T> Decoder for Option<T>
 where
     T: Decoder,
-    bool: Decoder<Error = T::Error>
 {
-    fn decode<R, O>(buffer: &mut R) -> Result<Self, Self::Error>
+    fn decode<R, O>(buffer: &mut R) -> Result<Self, std::io::Error>
     where
         R: Read + Seek,
         O: ByteOrder
