@@ -1,8 +1,6 @@
-use crate::types::VarI32;
 use std::fmt::Debug;
 use std::io::{Read, Seek, Write};
 use byteorder::ByteOrder;
-use derive_codec::{Decode, Encode};
 
 /// Trait representing the ability to encode a type into a byte stream.
 ///
