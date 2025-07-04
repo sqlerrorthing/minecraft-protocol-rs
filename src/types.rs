@@ -1,14 +1,11 @@
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
-use tokio::io::AsyncWrite;
-use tokio::io::AsyncRead;
-use std::io::{Error, ErrorKind, Seek};
-use std::io::{Read, Write};
-use std::rc::Rc;
+use crate::packet::{Decoder, Encoder};
+use std::io::{Error, ErrorKind};
 use std::sync::Arc;
-use byteorder::{ByteOrder, ReadBytesExt, WriteBytesExt};
+use tokio::io::AsyncRead;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWrite;
+use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
-use crate::packet::{Encoder, Decoder};
 
 macro_rules! impl_ordered_primitives {
     ($($ty:ty => $read_fn:ident, $write_fn:ident);+ $(;)?) => {
@@ -112,7 +109,10 @@ macro_rules! impl_varint {
                     num_read += 1;
 
                     if num_read > $max_bytes {
-                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, concat!(stringify!($name), " too big")));
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            concat!(stringify!($name), " too big"),
+                        ));
                     }
 
                     if b & 0x80 == 0 {
@@ -136,7 +136,7 @@ where
 {
     async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
-        W: AsyncWrite + Unpin + Send
+        W: AsyncWrite + Unpin + Send,
     {
         match self {
             Some(value) => {
@@ -148,13 +148,14 @@ where
     }
 }
 
+#[async_trait::async_trait]
 impl<T> Decoder for Option<T>
 where
     T: Decoder,
 {
     async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
     where
-        R: AsyncRead + Unpin + Send
+        R: AsyncRead + Unpin + Send,
     {
         let value = if bool::decode(buffer).await? {
             Some(T::decode(buffer).await?)
@@ -169,29 +170,29 @@ where
 macro_rules! impl_smart_ptr_codecs {
     ($($ptr:ty),+ $(,)?) => {
         $(
+            #[async_trait::async_trait]
             impl<T> Encoder for $ptr
             where
-                T: Encoder,
+                T: Encoder + Send + Sync,
             {
-                fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+                async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
                 where
-                    W: Write,
-                    O: ByteOrder,
+                    W: AsyncWrite + Unpin + Send,
                 {
-                    (**self).encode::<_,O>(buffer)
+                    (**self).encode(buffer).await
                 }
             }
 
+            #[async_trait::async_trait]
             impl<T> Decoder for $ptr
             where
                 T: Decoder,
             {
-                fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+                async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
                 where
-                    R: Read + Seek,
-                    O: ByteOrder,
+                    R: AsyncRead + Unpin + Send,
                 {
-                    let value = T::decode::<_, O>(buffer)?;
+                    let value = T::decode(buffer).await?;
                     Ok(Self::new(value))
                 }
             }
@@ -199,145 +200,143 @@ macro_rules! impl_smart_ptr_codecs {
     };
 }
 
-impl_smart_ptr_codecs!(Arc<T>, Rc<T>, Box<T>);
+impl_smart_ptr_codecs!(Arc<T>, Box<T>);
 
+#[async_trait::async_trait]
 impl<T> Encoder for Vec<T>
 where
-    T: Encoder,
+    T: Encoder + Send + Sync,
 {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
-        W: Write,
-        O: ByteOrder,
+        W: AsyncWrite + Unpin + Send,
     {
-        VarI32(self.len() as _).encode::<_,O>(buffer)?;
+        VarI32(self.len() as _).encode(buffer).await?;
 
         for item in self {
-            item.encode::<_,O>(buffer)?;
+            item.encode(buffer).await?;
         }
 
         Ok(())
     }
 }
 
+#[async_trait::async_trait]
 impl<T> Decoder for Vec<T>
 where
-    T: Decoder,
+    T: Decoder + Sync + Send,
 {
-    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+    async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
     where
-        R: Read + Seek,
-        O: ByteOrder,
+        R: AsyncRead + Unpin + Send,
     {
-        let len = VarI32::decode::<_, O>(buffer)?;
+        let len = VarI32::decode(buffer).await?;
         let len = len.0 as _;
 
         let mut vec = Vec::with_capacity(len);
 
         for _ in 0..len {
-            vec.push(T::decode::<_, O>(buffer)?);
+            vec.push(T::decode(buffer).await?);
         }
 
         Ok(vec)
     }
 }
 
+#[async_trait::async_trait]
 impl Encoder for Vec<u8> {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
-        W: Write,
-        O: ByteOrder,
+        W: AsyncWrite + Unpin + Send,
     {
-        VarI32(self.len() as _).encode::<_,O>(buffer)?;
-        buffer.write_all(self)
+        VarI32(self.len() as _).encode(buffer).await?;
+        buffer.write_all(self).await
     }
 }
 
+#[async_trait::async_trait]
 impl Decoder for Vec<u8> {
-    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+    async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
     where
-        R: Read + Seek,
-        O: ByteOrder,
+        R: AsyncRead + Unpin + Send,
     {
-        let VarI32(len) = VarI32::decode::<_, O>(buffer)?;
+        let VarI32(len) = VarI32::decode(buffer).await?;
         let len = len as usize;
 
         let mut vec = vec![0u8; len];
-        buffer.read_exact(&mut vec)?;
+        buffer.read_exact(&mut vec).await?;
 
         Ok(vec)
     }
 }
 
+#[async_trait::async_trait]
 impl<T> Encoder for &[T]
 where
-    T: Encoder,
+    T: Encoder + Send + Sync,
 {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
-        W: Write,
-        O: ByteOrder,
+        W: AsyncWrite + Unpin + Send,
     {
-        VarI32(self.len() as i32).encode::<_,O>(buffer)?;
+        VarI32(self.len() as i32).encode(buffer).await?;
         for item in *self {
-            item.encode::<_,O>(buffer)?;
+            item.encode(buffer).await?;
         }
         Ok(())
     }
 }
 
+#[async_trait::async_trait]
 impl Encoder for &[u8] {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
-        W: Write,
-        O: ByteOrder,
+        W: AsyncWrite + Unpin + Send,
     {
-        VarI32(self.len() as i32).encode::<_,O>(buffer)?;
-        buffer.write_all(self).map_err(|e| e.into())
+        VarI32(self.len() as i32).encode(buffer).await?;
+        buffer.write_all(self).await.map_err(|e| e.into())
     }
 }
 
+#[async_trait::async_trait]
 impl Encoder for String {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
-        W: Write,
-        O: ByteOrder
+        W: AsyncWrite + Unpin + Send,
     {
-        self.as_bytes().encode::<_,O>(buffer)
+        self.as_bytes().encode(buffer).await
     }
 }
 
+#[async_trait::async_trait]
 impl Decoder for String {
-    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+    async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
     where
-        R: Read + Seek,
-        O: ByteOrder,
+        R: AsyncRead + Unpin + Send,
     {
-        let bytes = Vec::<u8>::decode::<_, O>(buffer)?;
-        String::from_utf8(bytes).map_err(|e| {
-            Error::new(ErrorKind::InvalidData, e).into()
-        })
+        let bytes = Vec::<u8>::decode(buffer).await?;
+        String::from_utf8(bytes).map_err(|e| Error::new(ErrorKind::InvalidData, e).into())
     }
 }
 
+#[async_trait::async_trait]
 impl Encoder for Uuid {
-    fn encode<W, O>(&self, buffer: &mut W) -> Result<(), Error>
+    async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
-        W: Write,
-        O: ByteOrder,
+        W: AsyncWrite + Unpin + Send,
     {
-        buffer.write_all(self.as_bytes())
+        buffer.write_all(self.as_bytes()).await
     }
 }
 
+#[async_trait::async_trait]
 impl Decoder for Uuid {
-    fn decode<R, O>(buffer: &mut R) -> Result<Self, Error>
+    async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
     where
-        R: Read,
-        O: ByteOrder,
+        R: AsyncRead + Unpin + Send,
     {
         let mut bytes = [0u8; 16];
-        buffer.read_exact(&mut bytes)?;
+        buffer.read_exact(&mut bytes).await?;
         Ok(Uuid::from_bytes(bytes))
     }
 }
