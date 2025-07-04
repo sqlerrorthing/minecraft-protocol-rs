@@ -56,12 +56,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46c5e41b57b8bba42a04676d81cb89e9ee8e859a1a66f80a5a72e1cb76b34d43"
 
 [[package]]
-name = "byteorder"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
-
-[[package]]
 name = "bytes"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -144,11 +138,9 @@ name = "minecraft-protocol-rs"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "byteorder",
  "derive_codec",
  "thiserror",
  "tokio",
- "tokio-byteorder",
  "uuid",
 ]
 
@@ -279,16 +271,6 @@ dependencies = [
  "mio",
  "pin-project-lite",
  "slab",
-]
-
-[[package]]
-name = "tokio-byteorder"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cf347e8ae1d1ffd16c8aed569172a71bd81098a001d0f4964d476c0097aba4a"
-dependencies = [
- "byteorder",
- "tokio",
 ]
 
 [[package]]

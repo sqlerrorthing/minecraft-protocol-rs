@@ -7,11 +7,12 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
 use uuid::Uuid;
+use async_trait::async_trait;
 
 macro_rules! impl_ordered_primitives {
     ($($ty:ty => $read_fn:ident, $write_fn:ident);+ $(;)?) => {
         $(
-            #[async_trait::async_trait]
+            #[async_trait]
             impl Encoder for $ty {
                 async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
                 where
@@ -21,7 +22,7 @@ macro_rules! impl_ordered_primitives {
                 }
             }
 
-            #[async_trait::async_trait]
+            #[async_trait]
             impl Decoder for $ty {
                 async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
                 where
@@ -47,7 +48,7 @@ impl_ordered_primitives! {
     f64 => read_f64, write_f64;
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Encoder for bool {
     async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
@@ -58,7 +59,7 @@ impl Encoder for bool {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Decoder for bool {
     async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
     where
@@ -71,18 +72,18 @@ impl Decoder for bool {
 }
 
 macro_rules! impl_varint {
-    ($name:ident, $int:ty, $uint:ty, $max_bytes:expr) => {
+    ($name:ident, $uint:ty, $max_bytes:expr) => {
         #[repr(transparent)]
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub struct $name(pub $int);
+        pub struct $name(pub $uint);
 
-        #[async_trait::async_trait]
+        #[async_trait]
         impl Encoder for $name {
             async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
             where
                 W: AsyncWrite + Unpin + Send,
             {
-                let mut value = self.0 as $uint;
+                let mut value = self.0;
                 while value & !0x7F != 0 {
                     buffer.write_all(&[((value & 0x7F) as u8) | 0x80]).await?;
                     value >>= 7;
@@ -92,7 +93,7 @@ macro_rules! impl_varint {
             }
         }
 
-        #[async_trait::async_trait]
+        #[async_trait]
         impl Decoder for $name {
             async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
             where
@@ -121,16 +122,16 @@ macro_rules! impl_varint {
                     }
                 }
 
-                Ok($name(result as $int))
+                Ok($name(result))
             }
         }
     };
 }
 
-impl_varint!(VarI32, i32, u32, 5);
-impl_varint!(VarI64, i64, u64, 10);
+impl_varint!(Var32, u32, 5);
+impl_varint!(Var64, u64, 10);
 
-#[async_trait::async_trait]
+#[async_trait]
 impl<T> Encoder for Option<T>
 where
     T: Encoder + Sync,
@@ -149,7 +150,7 @@ where
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl<T> Decoder for Option<T>
 where
     T: Decoder,
@@ -171,7 +172,7 @@ where
 macro_rules! impl_smart_ptr_codecs {
     ($($ptr:ty),+ $(,)?) => {
         $(
-            #[async_trait::async_trait]
+            #[async_trait]
             impl<T> Encoder for $ptr
             where
                 T: Encoder + Send + Sync,
@@ -184,7 +185,7 @@ macro_rules! impl_smart_ptr_codecs {
                 }
             }
 
-            #[async_trait::async_trait]
+            #[async_trait]
             impl<T> Decoder for $ptr
             where
                 T: Decoder,
@@ -203,7 +204,7 @@ macro_rules! impl_smart_ptr_codecs {
 
 impl_smart_ptr_codecs!(Arc<T>, Box<T>);
 
-#[async_trait::async_trait]
+#[async_trait]
 impl<T> Encoder for Vec<T>
 where
     T: Encoder + Send + Sync,
@@ -212,7 +213,7 @@ where
     where
         W: AsyncWrite + Unpin + Send,
     {
-        VarI32(self.len() as _).encode(buffer).await?;
+        Var32(self.len() as _).encode(buffer).await?;
 
         for item in self {
             item.encode(buffer).await?;
@@ -222,7 +223,7 @@ where
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl<T> Decoder for Vec<T>
 where
     T: Decoder + Sync + Send,
@@ -231,7 +232,7 @@ where
     where
         R: AsyncRead + Unpin + Send,
     {
-        let len = VarI32::decode(buffer).await?;
+        let len = Var32::decode(buffer).await?;
         let len = len.0 as _;
 
         let mut vec = Vec::with_capacity(len);
@@ -244,24 +245,24 @@ where
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Encoder for Vec<u8> {
     async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
         W: AsyncWrite + Unpin + Send,
     {
-        VarI32(self.len() as _).encode(buffer).await?;
+        Var32(self.len() as _).encode(buffer).await?;
         buffer.write_all(self).await
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Decoder for Vec<u8> {
     async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
     where
         R: AsyncRead + Unpin + Send,
     {
-        let VarI32(len) = VarI32::decode(buffer).await?;
+        let Var32(len) = Var32::decode(buffer).await?;
         let len = len as usize;
 
         let mut vec = vec![0u8; len];
@@ -271,7 +272,7 @@ impl Decoder for Vec<u8> {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl<T> Encoder for &[T]
 where
     T: Encoder + Send + Sync,
@@ -280,7 +281,7 @@ where
     where
         W: AsyncWrite + Unpin + Send,
     {
-        VarI32(self.len() as i32).encode(buffer).await?;
+        Var32(self.len() as _).encode(buffer).await?;
         for item in *self {
             item.encode(buffer).await?;
         }
@@ -288,18 +289,18 @@ where
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Encoder for &[u8] {
     async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
         W: AsyncWrite + Unpin + Send,
     {
-        VarI32(self.len() as i32).encode(buffer).await?;
+        Var32(self.len() as _).encode(buffer).await?;
         buffer.write_all(self).await.map_err(|e| e.into())
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Encoder for String {
     async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
@@ -309,7 +310,7 @@ impl Encoder for String {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Decoder for String {
     async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
     where
@@ -320,7 +321,7 @@ impl Decoder for String {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Encoder for Uuid {
     async fn encode<W>(&self, buffer: &mut W) -> Result<(), Error>
     where
@@ -330,7 +331,7 @@ impl Encoder for Uuid {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl Decoder for Uuid {
     async fn decode<R>(buffer: &mut R) -> Result<Self, Error>
     where

@@ -11,8 +11,6 @@ resolver = "3"
 
 [dependencies]
 tokio = { version = "1.46.0", features = ["io-util"] }
-tokio-byteorder = "0.3.0"
-byteorder = "1.5.0"
 async-trait = "0.1.88"
 uuid = { version = "1.17.0", features = ["v4"] }
 derive_codec = { path = "derive_codec" }
