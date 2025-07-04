@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use crate::codec::{decoder::Decoder, encoder::Encoder};
+use crate::codec::{decoder::VersionedDecoder, encoder::VersionedEncoder};
 
 /// Trait representing types which have a unique identifier.
 ///
@@ -23,6 +23,6 @@ pub trait Identifiable {
 ///
 /// - [`Debug`] for debugging output.
 /// - [`Identifiable`] to provide the packet's unique ID.
-/// - [`Encoder`] to support serialization into bytes.
-/// - [`Decoder`] to support deserialization from bytes.
-pub trait Packet: Debug + Identifiable + Encoder + Decoder {}
+/// - [`VersionedEncoder`] to support serialization into bytes.
+/// - [`VersionedDecoder`] to support deserialization from bytes.
+pub trait Packet: Debug + Identifiable + VersionedEncoder + VersionedDecoder {}

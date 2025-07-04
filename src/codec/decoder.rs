@@ -1,4 +1,3 @@
-
 use async_trait::async_trait;
 use tokio::io::AsyncRead;
 
@@ -27,11 +26,25 @@ where
         R: AsyncRead + Unpin + Send;
 }
 
+/// Trait for decoding an instance of a type from a byte stream with respect to a specific protocol version.
+///
+/// Types implementing `VersionedDecoder` can be constructed by reading bytes from a buffer,
+/// applying version-aware decoding logic based on the provided `ProtocolVersion`.
 #[async_trait]
 pub trait VersionedDecoder
 where
     Self: Sized,
 {
+    /// Asynchronously decodes an instance of the type from the provided byte stream,
+    /// interpreting the data according to the specified protocol version.
+    ///
+    /// # Parameters
+    /// - `buffer`: A mutable reference to a reader from which encoded bytes are read.
+    /// - `source`: The `ProtocolVersion` indicating the version of the incoming data.
+    ///
+    /// # Returns
+    /// Returns `Ok(Self)` containing the decoded instance on success,
+    /// or a `VersionedCodecError` if decoding fails due to versioning or protocol errors.
     async fn decode<R>(
         buffer: &mut R,
         source: ProtocolVersion,
