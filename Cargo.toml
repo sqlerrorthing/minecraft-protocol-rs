@@ -3,6 +3,13 @@ name = "minecraft-protocol-rs"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = [
+    "derive_codec"
+]
+resolver = "3"
+
 [dependencies]
 byteorder = "1.5.0"
 uuid = { version = "1.17.0", features = ["v4"] }
+derive_codec = { path = "derive_codec" }

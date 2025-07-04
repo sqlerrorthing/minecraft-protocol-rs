@@ -1,6 +1,8 @@
+use crate::types::VarI32;
 use std::fmt::Debug;
 use std::io::{Read, Seek, Write};
 use byteorder::ByteOrder;
+use derive_codec::{Decode, Encode};
 
 /// Trait representing the ability to encode a type into a byte stream.
 ///
@@ -68,3 +70,10 @@ pub trait Identifiable {
 /// - [`Encoder`] to support serialization into bytes.
 /// - [`Decoder`] to support deserialization from bytes.
 pub trait Packet: Debug + Identifiable + Encoder + Decoder {}
+
+#[derive(Debug, Decode, Encode)]
+struct HandshakeC2SPacket {
+    protocol_version: VarI32,
+    address: String,
+    port: i16
+}
